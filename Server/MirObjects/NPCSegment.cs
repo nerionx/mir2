@@ -480,6 +480,13 @@ namespace Server.MirObjects
                     acts.Add(new NPCActions(ActionType.TakeItem, parts[1], count, dura));
                     break;
 
+                case "TAKEEQUIP":
+                    if (parts.Length < 3) return;
+                    count = parts.Length < 3 ? string.Empty : parts[2];
+                    string dura2 = parts.Length > 3 ? parts[3] : "";
+                    acts.Add(new NPCActions(ActionType.TakeEquip, parts[1], count, dura2));
+                    break;
+
                 case "GIVEEXP":
                     if (parts.Length < 2) return;
 
@@ -792,10 +799,7 @@ namespace Server.MirObjects
                     if (parts.Length < 2) return;
 
                     instanceId = parts.Length < 3 ? "1" : parts[2];
-
-                    string mobName = parts.Length < 4 ? "" : parts[3];
-
-                    acts.Add(new NPCActions(ActionType.MonClear, parts[1], instanceId, mobName));
+                    acts.Add(new NPCActions(ActionType.MonClear, parts[1], instanceId));
                     break;
 
                 case "GROUPRECALL":
@@ -2718,6 +2722,46 @@ namespace Server.MirObjects
                         }
                         player.RefreshStats();
                         break;
+                        
+                        //Take items which are equipped
+                    case ActionType.TakeEquip:
+                        if (param.Count < 2 || !uint.TryParse(param[1], out count)) count = 1;
+                        info = SMain.Envir.GetItemInfo(param[0]);
+
+                        ushort dura2;
+                        bool checkDura2 = ushort.TryParse(param[2], out dura2);
+
+                        if (info == null)
+                        {
+                            SMain.Enqueue(string.Format("Failed to get ItemInfo: {0}, Page: {1}", param[0], Key));
+                            break;
+                        }
+
+                        for(int k = 0; k < player.Info.Equipment.Length;k++)
+                        {
+                            UserItem item = player.Info.Equipment[k];
+                            if (item == null) continue;
+                            if (item.Info != info) continue;
+
+                            if (checkDura2)
+                                if (item.CurrentDura < dura2) continue;
+                            if (count > item.Count)
+                            {
+                                player.Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
+                                player.Info.Equipment[k] = null;
+
+                                count -= item.Count;
+                                continue;
+                            }
+                            player.Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = count });
+                            if (count == item.Count)
+                                player.Info.Equipment[k] = null;
+                            else
+                                item.Count -= count;
+                            break;
+                        }
+                        player.RefreshStats();
+                        break;
 
                     case ActionType.GiveExp:
                         uint tempUint;
@@ -3069,7 +3113,7 @@ namespace Server.MirObjects
 
                         map = SMain.Envir.GetMapByNameAndInstance(param[0], tempInt);
                         if (map == null) return;
-                        
+
                         foreach (var cell in map.Cells)
                         {
                             if (cell == null || cell.Objects == null) continue;
@@ -3080,10 +3124,6 @@ namespace Server.MirObjects
 
                                 if (ob.Race != ObjectType.Monster) continue;
                                 if (ob.Dead) continue;
-                                
-                                if (!string.IsNullOrEmpty(param[2]) && string.Compare(param[2], ((MonsterObject)ob).Info.Name, true) != 0)
-                                    continue;
-
                                 ob.Die();
                             }
                         }
